@@ -40,10 +40,29 @@ class TreeNode:
             self.expand(feasible_actions, probs)
 
     def calc_uct(self, c_u):
+        '''
+        UCT(Upper Confidence Tree)
+        の値を計算する
+        https://ja.wikipedia.org/wiki/%E3%83%A2%E3%83%B3%E3%83%86%E3%82%AB%E3%83%AB%E3%83%AD%E6%9C%A8%E6%8E%A2%E7%B4%A2#UCT_(Upper_Confidence_Tree)
+        '''
         W, N, P, N_p = (self.W, self.N, self.P, self.parent.N)
         q = W / N if N != 0 else 0
         u = c_u * P * math.sqrt(math.log(N_p + 1) / (1+N))
         return q + u
+
+    def get_max_uct_action(self, c_u):
+        '''
+        最大のuct値を取るactionを取得する
+        c_u: Q + Uのバランスをとる係数
+        '''
+        max_uct = -1 # uctは正の値なので、必ずactionが更新されるように負の数を設定
+        max_uct_action = None
+        for action, child in self.children.items():
+            uct = child.calc_uct(c_u)
+            if max_uct < uct:
+                max_uct = uct
+                max_uct_action = action
+        return max_uct_action
 
     def backup(self, reward):
         '''現在のノードから根まで報酬と通過回数を伝搬させる'''
@@ -108,16 +127,7 @@ class MonteCarloTree:
         reward = 0
         value = 0
         while not node.is_leaf():
-            action_ucts = MonteCarloTree.get_ucts(node, self.c)
-            action = max(action_ucts, key=lambda au: au[1])[0]
-            if verbose:
-                print('obs: ', end='')
-                env.render()
-                print('children:', node.children)
-                print('probs:', probs)
-                print('action_ucts:', action_ucts)
-                print('action:', ['left', 'right'][action])
-
+            action = node.get_max_uct_action(self.c)
             node = node.children[action]
             obs, reward, done, info = env.step(action)
 
@@ -144,17 +154,6 @@ class MonteCarloTree:
             self._playout(node, env, obs, verbose)
             env, obs = orig_env.copy()
             node = self._root
-
-    @staticmethod
-    def get_ucts(node, c_u):
-        '''
-        UCT(Upper Confidence Tree)
-        の手法で、子ノードに対して値を計算する
-        https://ja.wikipedia.org/wiki/%E3%83%A2%E3%83%B3%E3%83%86%E3%82%AB%E3%83%AB%E3%83%AD%E6%9C%A8%E6%8E%A2%E7%B4%A2#UCT_(Upper_Confidence_Tree)
-        '''
-        actions, child_nodes = zip(*node.children.items())
-        ucts = [child.calc_uct(c_u) for child in child_nodes]
-        return list(zip(actions, ucts))
 
     def get_probability(self):
         '''
