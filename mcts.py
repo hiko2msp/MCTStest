@@ -119,41 +119,35 @@ class MonteCarloTree:
             raise Exception('call playout before select')
         return random.choices(actions, weights=weights)[0]
 
-    def _playout(self, node, env, obs, verbose=False):
+    def _playout(self, node, env, obs):
         '''
         MCTを一つ育てる
         '''
         done = False
-        reward = 0
-        value = 0
         while not node.is_leaf():
             action = node.get_max_uct_action(self.c)
             node = node.children[action]
             obs, reward, done, info = env.step(action)
 
-        if not done:
+        if done:
+            node.backup(reward)
+        else:
             feasible_actions = env.feasible_actions()
             probs, value = self.policy_fn(obs)
             node.ensure_children(feasible_actions, probs)
             node.backup(value)
-        else:
-            node.backup(reward)
 
         return node, env, obs
 
-    def playout(self, orig_env, num_playout=200, verbose=False):
+    def playout(self, orig_env, num_playout=200):
         '''
         現在の状態から
         num_playoutの数だけシミュレートを行いMCTを育てる
         '''
-        node = self._root
-        env, obs = orig_env.copy()
         for i in range(num_playout):
-            if verbose:
-                print('playout:', i)
-            self._playout(node, env, obs, verbose)
-            env, obs = orig_env.copy()
             node = self._root
+            env, obs = orig_env.copy()
+            self._playout(node, env, obs)
 
     def get_probability(self):
         '''
@@ -338,7 +332,7 @@ if __name__ == '__main__':
         obs_list = []
         prob_list = []
         while True:
-            mct.playout(env, num_playout=10, verbose=False)
+            mct.playout(env, num_playout=10)
             prob = mct.get_probability()
             value = mct.get_value()
 
@@ -371,7 +365,7 @@ if __name__ == '__main__':
         done = False
         mct = MonteCarloTree(policy_net.get_policy_fn())
         while not done:
-            mct.playout(env, verbose=False)
+            mct.playout(env)
             prob = mct.get_probability()
             print('obs:', obs)
             action = mct.select_deterministically()
