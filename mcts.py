@@ -9,31 +9,41 @@ np.set_printoptions(precision=2)
 class TreeNode:
     '''
     MonteCarloTreeのノード
-    W, N, Qを持つ。
+    W, N, Q, Pを持つ。
     Qは W/Nで計算できるので省略
     '''
-    def __init__(self, parent):
+    def __init__(self, parent, prob):
         self.parent = parent
         self.children = {}
 
         self.W = 0
         self.N = 0
+        self.P = prob
 
-    def expand(self, feasible_actions):
+    def expand(self, feasible_actions, probs):
         '''
         Actionの数だけ直下に子を作る
+
+        feasible_actions: the list of indices of feasible actions
+        probs: probability distribution on action space
         '''
         for a in feasible_actions:
-            self.children[a] = TreeNode(self)
-            
+            self.children[a] = TreeNode(self, probs[a])
+
     def has_children(self):
         '''子ノードがあるか？'''
         return len(self.children) > 0
 
-    def ensure_children(self, feasible_actions): 
+    def ensure_children(self, feasible_actions, probs):
         '''子ノードがなければ作る'''
         if not self.has_children():
-            self.expand(feasible_actions)
+            self.expand(feasible_actions, probs)
+
+    def calc_uct(self, c_u):
+        W, N, P, N_p = (self.W, self.N, self.P, self.parent.N)
+        q = W / N if N != 0 else 0
+        u = c_u * P * math.sqrt(math.log(N_p + 1) / (1+N))
+        return q + u
 
     def backup(self, reward):
         '''現在のノードから根まで報酬と通過回数を伝搬させる'''
@@ -52,7 +62,7 @@ class MonteCarloTree:
     MonteCarloTreeを扱うクラス
     '''
     def __init__(self, policy_fn):
-        self._root = TreeNode(None)
+        self._root = TreeNode(None, None)
 
         self.c = 5
         self.policy_fn = policy_fn
@@ -85,21 +95,20 @@ class MonteCarloTree:
         '''
         action_nodes = list(self._root.children.items())
         actions, nodes = zip(*action_nodes)
-        weights = [n.N ** (1/temperature) for n in nodes] 
+        weights = [n.N ** (1/temperature) for n in nodes]
         if sum(weights) == 0:
             raise Exception('call playout before select')
         return random.choices(actions, weights=weights)[0]
 
     def _playout(self, node, env, obs, verbose=False):
         '''
-        MCTを一つ育てる        
+        MCTを一つ育てる
         '''
         done = False
         reward = 0
         value = 0
         while not node.is_leaf():
-            probs, value = self.policy_fn(obs)
-            action_ucts = MonteCarloTree.get_ucts(node, probs, self.c)
+            action_ucts = MonteCarloTree.get_ucts(node, self.c)
             action = max(action_ucts, key=lambda au: au[1])[0]
             if verbose:
                 print('obs: ', end='')
@@ -114,7 +123,8 @@ class MonteCarloTree:
 
         if not done:
             feasible_actions = env.feasible_actions()
-            node.ensure_children(feasible_actions)
+            probs, value = self.policy_fn(obs)
+            node.ensure_children(feasible_actions, probs)
             node.backup(value)
         else:
             node.backup(reward)
@@ -136,20 +146,14 @@ class MonteCarloTree:
             node = self._root
 
     @staticmethod
-    def get_ucts(node, probs, c_u):
+    def get_ucts(node, c_u):
         '''
         UCT(Upper Confidence Tree)
         の手法で、子ノードに対して値を計算する
         https://ja.wikipedia.org/wiki/%E3%83%A2%E3%83%B3%E3%83%86%E3%82%AB%E3%83%AB%E3%83%AD%E6%9C%A8%E6%8E%A2%E7%B4%A2#UCT_(Upper_Confidence_Tree)
         '''
         actions, child_nodes = zip(*node.children.items())
-
-        def calc_uct(N_p, W, N, P):
-            q = W / N if N != 0 else 0
-            u = c_u * P * math.sqrt(math.log(N_p + 1) / (1+N))
-            return q + u
-
-        ucts = [calc_uct(node.N, child.W, child.N, p) for child, p in zip(child_nodes, probs)]
+        ucts = [child.calc_uct(c_u) for child in child_nodes]
         return list(zip(actions, ucts))
 
     def get_probability(self):
@@ -185,7 +189,7 @@ class MonteCarloTree:
             result_str += f'[a:{action}, N:{node.N}, W:{node.W}]\n'
             for child_action, child_node in node.children.items():
                 result_str += print_recursive(child_action, child_node, depth+1)
-            return result_str 
+            return result_str
         return print_recursive(None, self._root, 0)
 
 
@@ -272,7 +276,7 @@ class TestEnv:
         new_env.player_pos = deepcopy(self.player_pos)
         new_env.goal_pos = deepcopy(self.goal_pos)
         new_env.obs_counter = deepcopy(self.obs_counter)
-        
+
         return new_env, new_env.obs
 
 
@@ -310,7 +314,7 @@ class PolicyNet:
         '''
         for obs, prob in zip(obs_list, prob_list):
             self.data.append((obs, prob))
-        
+
         if len(self.data) < 5:
             return
         sampled = random.sample(self.data, min(500, len(self.data)))
@@ -359,7 +363,7 @@ if __name__ == '__main__':
             if num_done > 100:
                 break
     except KeyboardInterrupt:
-        pass 
+        pass
 
     total_reward = 0
     num_iterate = 10
