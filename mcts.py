@@ -45,7 +45,7 @@ class TreeNode:
         の値を計算する
         https://ja.wikipedia.org/wiki/%E3%83%A2%E3%83%B3%E3%83%86%E3%82%AB%E3%83%AB%E3%83%AD%E6%9C%A8%E6%8E%A2%E7%B4%A2#UCT_(Upper_Confidence_Tree)
         '''
-        W, N, P, N_p = (self.W, self.N, self.P, self.parent.N)
+        W, N, P, N_p = (self.W, self.N, self.P, self.parent.N-1)
         q = W / N if N != 0 else 0
         u = c_u * P * math.sqrt(math.log(N_p + 1) / (1+N))
         return q + u
@@ -155,15 +155,14 @@ class MonteCarloTree:
         子ノードのNを使ってsearch probabilityを求める
         '''
         children = self._root.children
-        total = sum([n.N for n in children.values()])
         result = [0] * 2
         for a, n in children.items():
-            result[a] = n.N / total
+            result[a] = n.N / (self._root.N-1)
         return result
 
     def get_value(self):
         '''Qを求める'''
-        return self._root.W / self._root.N
+        return self._root.W / (self._root.N-1)
 
     def count(self):
         '''MCTが持つノード数を求める'''
